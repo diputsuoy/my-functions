@@ -1,0 +1,15 @@
+{
+  "name": "solana-meme-trader",
+  "version": "0.1.0",
+  "description": "Paper-trading bot for Solana memecoins with a 4-agent trading team dashboard",
+  "type": "module",
+  "main": "src/index.js",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node src/index.js",
+    "demo": "node src/index.js --demo",
+    "test": "node --test"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}

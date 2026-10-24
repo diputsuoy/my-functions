@@ -1,0 +1,10 @@
+{
+  "solUsd": 180,
+  "startBankroll": 0.25,
+  "execution": { "slippagePct": 15, "priorityFeeSol": 0.001, "bribeSol": 0.001 },
+  "risk": { "positionPct": 30, "teamMaxDrawdownPct": 40 },
+  "agents": {
+    "COLE": { "takeProfitPct": 40, "stopLossPct": 15 },
+    "OWEN": { "enabled": true }
+  }
+}

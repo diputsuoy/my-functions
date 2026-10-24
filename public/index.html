@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meme Trading Team</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <header>
+    <div class="brand">
+      <span class="logo">◎</span>
+      <div>
+        <div class="title">Meme Bot <span class="muted">TRADING TEAM</span></div>
+        <div class="badges"><span id="mode" class="badge">PAPER</span><span id="feed" class="badge"></span><span id="halt" class="badge bad" hidden>HALTED</span></div>
+      </div>
+    </div>
+    <div class="kpis">
+      <div><div class="label">START</div><div class="mono" id="start">—</div></div>
+      <div><div class="label">TEAM BALANCE</div><div class="big mono" id="equity">—</div></div>
+      <div><div class="label">NET P&amp;L</div><div class="big mono" id="pnl">—</div></div>
+      <div><div class="label">ELAPSED</div><div class="mono" id="elapsed">—</div></div>
+    </div>
+    <div class="controls">
+      <button id="pause">Пауза</button>
+      <button id="close-all">Продать всё</button>
+      <button id="reset" class="danger">Сброс</button>
+    </div>
+  </header>
+
+  <section id="agents" class="agents"></section>
+
+  <section class="grid">
+    <div class="panel">
+      <div class="panel-head"><span>TRADES</span><span class="muted">P&amp;L / SOL</span></div>
+      <table class="table">
+        <thead><tr><th>TOKEN</th><th>TRADER</th><th>STATE</th><th class="r">P&amp;L</th></tr></thead>
+        <tbody id="trades"></tbody>
+      </table>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><span>ALLOCATION</span><span class="muted" id="alloc-rule"></span></div>
+      <table class="table">
+        <thead><tr><th>HOUR</th><th>TRANSFER</th><th class="r">SOL</th></tr></thead>
+        <tbody id="allocations"></tbody>
+      </table>
+      <div class="share-head"><span class="label">CAPITAL SHARE</span><span class="mono" id="share-top"></span></div>
+      <div class="share" id="share"></div>
+      <div class="label next" id="next-alloc"></div>
+      <div class="market mono" id="market"></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><span>LOG</span><span class="muted">последние события</span></div>
+    <div id="log" class="log mono"></div>
+  </section>
+  <footer class="muted">Бумажная торговля: реальные деньги не используются. Результаты симуляции не гарантируют реальную прибыль.</footer>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
