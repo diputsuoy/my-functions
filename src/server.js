@@ -12,12 +12,12 @@ export function startServer({ port, getSnapshot, actions }) {
     const url = new URL(req.url, 'http://localhost');
     if (url.pathname === '/events') {
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
-      res.write(`data: ${JSON.stringify(getSnapshot())}\n\n`);
+      res.write(`data: ${JSON.stringify(getSnapshot(true))}\n\n`);
       clients.add(res);
       req.on('close', () => clients.delete(res));
       return;
     }
-    if (url.pathname === '/api/state') return json(res, getSnapshot());
+    if (url.pathname === '/api/state') return json(res, getSnapshot(true));
     if (req.method === 'POST' && url.pathname.startsWith('/api/')) {
       const action = actions[url.pathname.slice(5)];
       if (!action) return json(res, { error: 'unknown action' }, 404);
@@ -36,11 +36,13 @@ export function startServer({ port, getSnapshot, actions }) {
     }
   });
 
+  // 4 updates/s keep the UI lively; the equity history (heavier) rides every 2 s.
+  let n = 0;
   setInterval(() => {
     if (!clients.size) return;
-    const msg = `data: ${JSON.stringify(getSnapshot())}\n\n`;
+    const msg = `data: ${JSON.stringify(getSnapshot(n++ % 8 === 0))}\n\n`;
     for (const c of clients) c.write(msg);
-  }, 1000);
+  }, 250);
 
   server.listen(port, '127.0.0.1');
   return server;

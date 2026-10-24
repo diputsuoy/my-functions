@@ -6,6 +6,9 @@ import { fillBuy, fillSell, quoteSell } from './paper.js';
 const MAX_EVENTS = 300;
 const MAX_CLOSED = 500;
 const WATCH_TTL_MS = 90_000;
+const HISTORY_EVERY_MS = 15_000;
+const HISTORY_MAX = 5760; // 24h of 15s samples
+const HISTORY_POINTS = 240;
 
 export class Team extends EventEmitter {
   constructor(cfg, agents, market, clock = Date.now) {
@@ -23,6 +26,7 @@ export class Team extends EventEmitter {
     this.watch = new Map(); // `${agent}:${mint}` -> { agent, mint, symbol, reason, ts }
     this.events = [];
     this.allocations = [];
+    this.history = []; // [ts, teamEquity, ...agentEquity]
     this.hour = 1;
     this.lastAllocationAt = this.startedAt;
     this.books = Object.fromEntries(agents.map(a => [a.name, this.newBook(cfg.startBankroll)]));
@@ -64,22 +68,25 @@ export class Team extends EventEmitter {
     const now = this.now();
     this.fillBids(now);
     this.manageExits(now);
-    if (!this.paused) this.scan(now);
+    this.scan(now);
     this.checkDrawdown();
     if (now - this.lastAllocationAt >= this.cfg.allocation.intervalMin * 60_000) this.reallocate(now);
     for (const [k, w] of this.watch) if (now - w.ts > WATCH_TTL_MS) this.watch.delete(k);
+    this.recordHistory(now);
     this.market.prune(now, new Set(this.positions.map(p => p.mint)));
   }
 
-  canEnter(agent, now) {
+  // Why the agent cannot open a new position right now, or null if it can.
+  entryBlock(agent, now) {
     const b = this.books[agent.name];
     const r = this.cfg.risk;
-    if (this.halted) return false;
-    if (this.positions.filter(p => p.agent === agent.name).length >= r.maxOpenPerAgent) return false;
+    if (this.paused) return 'paused';
+    if (this.halted) return 'halted';
+    if (this.positions.filter(p => p.agent === agent.name).length >= r.maxOpenPerAgent) return 'max_open';
     b.entries = b.entries.filter(ts => now - ts < 3_600_000);
-    if (b.entries.length >= r.maxEntriesPerAgentPerHour) return false;
-    if (now - b.lastLossAt < r.cooldownAfterLossSec * 1000) return false;
-    return this.entrySize(agent) > 0;
+    if (b.entries.length >= r.maxEntriesPerAgentPerHour) return 'hour_limit';
+    if (now - b.lastLossAt < r.cooldownAfterLossSec * 1000) return 'cooldown';
+    return this.entrySize(agent) > 0 ? null : 'no_cash';
   }
 
   entrySize(agent) {
@@ -92,12 +99,16 @@ export class Team extends EventEmitter {
 
   scan(now) {
     for (const agent of this.agents) {
-      if (!this.canEnter(agent, now)) continue;
+      agent.funnel = {};
+      agent.scanned = this.market.tokens.size;
+      const block = this.entryBlock(agent, now);
+      if (block) { agent.funnel[block] = agent.scanned; continue; }
       for (const t of this.market.tokens.values()) {
-        if (this.positions.some(p => p.mint === t.mint)) continue; // one team position per token
+        if (this.positions.some(p => p.mint === t.mint)) { agent.no('held'); continue; } // one team position per token
         const sig = agent.evaluate(t, now, this.market);
         if (!sig) continue;
         const key = `${agent.name}:${t.mint}`;
+        agent.no(sig.action);
         if (sig.action === 'watch') {
           if (!this.watch.has(key)) this.log('watch', agent.name, t.symbol, sig.reason);
           this.watch.set(key, { agent: agent.name, mint: t.mint, symbol: t.symbol, reason: sig.reason, ts: now });
@@ -105,6 +116,7 @@ export class Team extends EventEmitter {
         }
         const safe = checkSafety(t, this.market, this.cfg);
         if (!safe.ok) {
+          agent.no(`unsafe_${safe.key}`);
           if (!this.watch.has(key)) this.log('skip', agent.name, t.symbol, `signal skipped: ${safe.reason}`);
           this.watch.set(key, { agent: agent.name, mint: t.mint, symbol: t.symbol, reason: `skip: ${safe.reason}`, ts: now });
           continue;
@@ -242,6 +254,22 @@ export class Team extends EventEmitter {
     for (const a of this.agents) this.books[a.name].hourStart = this.equity(a.name);
   }
 
+  recordHistory(now) {
+    const last = this.history[this.history.length - 1];
+    if (last && now - last[0] < HISTORY_EVERY_MS) return;
+    this.history.push([now, this.teamEquity(), ...this.agents.map(a => this.equity(a.name))]);
+    if (this.history.length > HISTORY_MAX) this.history.shift();
+  }
+
+  // Equity curve thinned to at most HISTORY_POINTS samples, current value last.
+  historySeries() {
+    const h = this.history;
+    const step = Math.max(1, Math.ceil(h.length / HISTORY_POINTS));
+    const out = h.filter((_, i) => i % step === 0);
+    out.push([this.now(), this.teamEquity(), ...this.agents.map(a => this.equity(a.name))]);
+    return out.map(r => r.map((v, i) => (i === 0 ? v : Math.round(v * 1e6) / 1e6)));
+  }
+
   hourReturn(name) {
     const b = this.books[name];
     return b.hourStart > 0 ? (this.equity(name) / b.hourStart - 1) * 100 : 0;
@@ -249,7 +277,7 @@ export class Team extends EventEmitter {
 
   // ---- UI snapshot & persistence --------------------------------------
 
-  snapshot(extra = {}) {
+  snapshot(extra = {}, { history = true } = {}) {
     const now = this.now();
     const teamEq = this.teamEquity();
     const start = this.teamStart();
@@ -263,6 +291,7 @@ export class Team extends EventEmitter {
         hourReturnPct: this.hourReturn(a.name), totalReturnPct: (eq / b.start - 1) * 100,
         share: teamEq > 0 ? eq / teamEq * 100 : 0,
         wins: b.wins, losses: b.losses, fees: b.fees, open: pos.length,
+        scanned: a.scanned ?? 0, funnel: a.funnel ?? {},
         current: last ? { symbol: last.symbol, state: last.state, pnlPct: last.state === 'open' ? last.pnlPct ?? 0 : (last.pnl / (last.cost ?? last.solIn)) * 100, exitReason: last.exitReason } : null,
       };
     });
@@ -270,11 +299,22 @@ export class Team extends EventEmitter {
       id: p.id, agent: p.agent, symbol: p.symbol, mint: p.mint, url: p.url, state: p.state,
       solIn: p.solIn, pnl: p.state === 'open' ? this.positionValue(p) - p.cost : p.pnl ?? 0,
       pnlPct: p.state === 'open' ? p.pnlPct ?? 0 : p.pnl != null ? p.pnl / (p.cost ?? p.solIn) * 100 : 0,
-      reason: p.exitReason || p.reason, ts: p.closedAt || p.openedAt || p.placedAt,
+      reason: p.exitReason || p.reason, entryReason: p.reason, ts: p.closedAt || p.openedAt || p.placedAt,
+      openedAt: p.openedAt || p.placedAt,
+      tp: this.cfg.agents[p.agent]?.takeProfitPct, sl: this.cfg.agents[p.agent]?.stopLossPct,
     });
-    const watching = [...this.watch.values()].slice(-12).map(w => ({ agent: w.agent, symbol: w.symbol, mint: w.mint, state: 'watch', reason: w.reason, ts: w.ts }));
+    const watching = [...this.watch.values()].slice(-20).map(w => ({ agent: w.agent, symbol: w.symbol, mint: w.mint, state: 'watch', reason: w.reason, ts: w.ts }));
+    const done = this.closed.filter(p => p.state === 'closed');
+    const wins = done.filter(p => p.pnl >= 0).length;
+    const summary = {
+      trades: done.length, wins, winRate: done.length ? wins / done.length * 100 : 0,
+      fees: Object.values(this.books).reduce((s, b) => s + b.fees, 0),
+      best: done.reduce((m, p) => Math.max(m, p.pnl), 0), worst: done.reduce((m, p) => Math.min(m, p.pnl), 0),
+      failed: this.closed.filter(p => p.state === 'failed').length,
+    };
     return {
-      now, startedAt: this.startedAt, hour: this.hour, paused: this.paused, halted: this.halted,
+      now, startedAt: this.startedAt, hour: this.hour, summary,
+      history: history ? { agents: this.agents.map(a => a.name), points: this.historySeries() } : null, paused: this.paused, halted: this.halted,
       nextAllocationAt: this.lastAllocationAt + this.cfg.allocation.intervalMin * 60_000,
       team: { start, equity: teamEq, pnl: teamEq - start, pnlPct: (teamEq / start - 1) * 100 },
       agents,
@@ -291,7 +331,7 @@ export class Team extends EventEmitter {
     return {
       startedAt: this.startedAt, hour: this.hour, lastAllocationAt: this.lastAllocationAt, nextId: this.nextId,
       halted: this.halted, books: this.books, positions: this.positions, closed: this.closed,
-      allocations: this.allocations, events: this.events,
+      allocations: this.allocations, events: this.events, history: this.history,
     };
   }
 
@@ -301,6 +341,7 @@ export class Team extends EventEmitter {
     Object.assign(this, {
       startedAt: s.startedAt, hour: s.hour, lastAllocationAt: s.lastAllocationAt, nextId: s.nextId,
       halted: s.halted, closed: s.closed || [], allocations: s.allocations || [], events: s.events || [],
+      history: s.history || [],
     });
     for (const [name, b] of Object.entries(s.books || {})) if (this.books[name]) this.books[name] = { ...this.books[name], ...b };
     const now = this.now();

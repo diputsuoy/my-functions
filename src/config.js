@@ -9,7 +9,8 @@ export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 export const defaults = {
   port: 3777,
   openBrowser: true,
-  solUsd: 180,
+  solUsd: 180,          // fallback; refreshed from public price APIs when solUsdAuto is on
+  solUsdAuto: true,
 
   // Start capital per agent, SOL (video: 1 SOL for the whole team).
   startBankroll: 0.25,

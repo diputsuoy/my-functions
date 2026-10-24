@@ -3,61 +3,95 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Meme Trading Team</title>
+<title>Meme Trading Desk</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%2314f195'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<main>
-  <header>
+<div class="app">
+  <header class="topbar">
     <div class="brand">
-      <span class="logo">◎</span>
+      <div class="logo" aria-hidden="true"><span></span><span></span><span></span></div>
       <div>
-        <div class="title">Meme Bot <span class="muted">TRADING TEAM</span></div>
-        <div class="badges"><span id="mode" class="badge">PAPER</span><span id="feed" class="badge"></span><span id="halt" class="badge bad" hidden>HALTED</span></div>
+        <div class="brand-name">Meme Trading Desk</div>
+        <div class="brand-sub">команда из 4 ботов · Solana · pump.fun</div>
       </div>
     </div>
-    <div class="kpis">
-      <div><div class="label">START</div><div class="mono" id="start">—</div></div>
-      <div><div class="label">TEAM BALANCE</div><div class="big mono" id="equity">—</div></div>
-      <div><div class="label">NET P&amp;L</div><div class="big mono" id="pnl">—</div></div>
-      <div><div class="label">ELAPSED</div><div class="mono" id="elapsed">—</div></div>
+    <div class="status">
+      <span id="mode" class="pill"></span>
+      <span id="health" class="health"><i></i><span></span></span>
     </div>
-    <div class="controls">
-      <button id="pause">Пауза</button>
-      <button id="close-all">Продать всё</button>
-      <button id="reset" class="danger">Сброс</button>
+    <div class="actions">
+      <button id="pause" class="btn"></button>
+      <button id="close-all" class="btn">Продать всё</button>
+      <button id="reset" class="btn btn-ghost-danger">Сброс</button>
     </div>
   </header>
 
-  <section id="agents" class="agents"></section>
+  <div id="banner" class="banner" hidden></div>
 
-  <section class="grid">
-    <div class="panel">
-      <div class="panel-head"><span>TRADES</span><span class="muted">P&amp;L / SOL</span></div>
-      <table class="table">
-        <thead><tr><th>TOKEN</th><th>TRADER</th><th>STATE</th><th class="r">P&amp;L</th></tr></thead>
-        <tbody id="trades"></tbody>
-      </table>
+  <section class="hero card">
+    <div class="hero-main">
+      <div class="eyebrow">Баланс команды</div>
+      <div class="hero-value"><span id="equity">—</span><small>SOL</small></div>
+      <div class="hero-delta" id="pnl"></div>
+      <div class="hero-meta" id="hero-meta"></div>
     </div>
-    <div class="panel">
-      <div class="panel-head"><span>ALLOCATION</span><span class="muted" id="alloc-rule"></span></div>
-      <table class="table">
-        <thead><tr><th>HOUR</th><th>TRANSFER</th><th class="r">SOL</th></tr></thead>
-        <tbody id="allocations"></tbody>
-      </table>
-      <div class="share-head"><span class="label">CAPITAL SHARE</span><span class="mono" id="share-top"></span></div>
-      <div class="share" id="share"></div>
-      <div class="label next" id="next-alloc"></div>
-      <div class="market mono" id="market"></div>
+    <div class="hero-chart">
+      <canvas id="chart" aria-label="График баланса команды"></canvas>
+      <div class="chart-legend" id="legend"></div>
+      <div class="chart-tip" id="tip"></div>
+    </div>
+    <div class="stats" id="stats"></div>
+  </section>
+
+  <section class="agents" id="agents"></section>
+
+  <section class="cols">
+    <div class="col">
+      <div class="card">
+        <div class="card-head"><h2>Открытые позиции</h2><span class="hint" id="open-count"></span></div>
+        <div id="open" class="list"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>История сделок</h2><span class="hint" id="hist-hint"></span></div>
+        <div class="table-wrap">
+          <table class="table">
+            <thead><tr><th class="hide-sm">Время</th><th>Токен</th><th>Бот</th><th class="hide-sm">Выход</th><th class="r">SOL</th><th class="r">%</th></tr></thead>
+            <tbody id="closed"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="card">
+        <div class="card-head"><h2>Капитал</h2><span class="hint" id="next-alloc"></span></div>
+        <div class="share" id="share"></div>
+        <div class="share-legend" id="share-legend"></div>
+        <div class="sub-head">Перераспределения <span class="hint">50% свободных денег худшего → лучшему, раз в час</span></div>
+        <div id="allocations" class="list compact"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>На радаре</h2><span class="hint">что боты сейчас рассматривают</span></div>
+        <div id="radar" class="list compact"></div>
+      </div>
     </div>
   </section>
 
-  <section class="panel">
-    <div class="panel-head"><span>LOG</span><span class="muted">последние события</span></div>
-    <div id="log" class="log mono"></div>
+  <section class="card">
+    <div class="card-head tabs">
+      <button class="tab active" data-tab="log">Лента событий</button>
+      <button class="tab" data-tab="diag">Данные и диагностика</button>
+    </div>
+    <div id="tab-log" class="log"></div>
+    <div id="tab-diag" class="diag" hidden></div>
   </section>
-  <footer class="muted">Бумажная торговля: реальные деньги не используются. Результаты симуляции не гарантируют реальную прибыль.</footer>
-</main>
+
+  <footer>Бумажная торговля: реальные деньги не используются. Результат симуляции не гарантирует реальную прибыль.</footer>
+</div>
 <script src="app.js"></script>
 </body>
 </html>

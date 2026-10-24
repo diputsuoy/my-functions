@@ -9,6 +9,7 @@ import { createAgents } from './agents/index.js';
 import { PumpPortalFeed } from './feeds/pumpportal.js';
 import { SimulatorFeed } from './feeds/simulator.js';
 import { startServer } from './server.js';
+import { trackSolUsd } from './solprice.js';
 
 const args = process.argv.slice(2);
 const flag = f => args.includes(f);
@@ -22,7 +23,16 @@ const statePath = path.join(dataDir, `state-${mode}.json`);
 const tradesPath = path.join(dataDir, `trades-${mode}.csv`);
 
 const market = new Market(cfg);
-const feed = mode === 'demo' ? new SimulatorFeed() : new PumpPortalFeed();
+const feed = mode === 'demo' ? new SimulatorFeed() : new PumpPortalFeed({ samplePath: path.join(dataDir, 'feed-sample.jsonl') });
+if (!feed.stats) {
+  feed.stats = { startedAt: Date.now(), connectedAt: Date.now(), lastMessageAt: null, messages: 0, creates: 0, trades: 0, migrations: 0, reconnects: 0, lastError: null };
+  feed.on('event', ev => {
+    const s = feed.stats;
+    s.messages++; s.lastMessageAt = Date.now();
+    s[ev.type === 'create' ? 'creates' : ev.type === 'trade' ? 'trades' : 'migrations']++;
+  });
+}
+rmSync(path.join(dataDir, 'feed-sample.jsonl'), { force: true });
 let team = makeTeam();
 
 function makeTeam() {
@@ -43,7 +53,8 @@ if (existsSync(statePath)) {
 market.on('token', t => feed.follow(t.mint));
 market.on('dropped', mints => feed.unfollow(mints));
 feed.on('event', ev => market.handle(ev));
-feed.on('status', s => team.log('info', 'FEED', '', `pumpportal: ${s}`));
+feed.on('status', s => team.log('info', 'FEED', '', `pumpportal: ${s}${s !== 'live' && feed.stats.lastError ? ` — ${feed.stats.lastError}` : ''}`));
+if (mode === 'live' && cfg.solUsdAuto) trackSolUsd(cfg, r => team.log('info', 'SOL', '', `SOL = $${r.price.toFixed(2)} (${r.source})`));
 feed.start();
 if (mode === 'live') {
   setTimeout(() => {
@@ -55,10 +66,22 @@ setInterval(() => team.tick(), 1000);
 const save = () => writeFileSync(statePath, JSON.stringify(team.toJSON()));
 setInterval(save, 15_000);
 
-const snapshot = () => team.snapshot({
-  mode, feed: feed.status, solUsd: cfg.solUsd,
+// Everything needed to debug a "no signals" report, in one file the user can send.
+const writeDiagnostics = () => {
+  const s = snapshot();
+  writeFileSync(path.join(dataDir, 'diagnostics.json'), JSON.stringify({
+    writtenAt: new Date().toISOString(), mode, node: process.version, platform: process.platform,
+    feed: s.feed, feedStats: s.feedStats, solUsd: s.solUsd, market: s.market,
+    agents: s.agents.map(a => ({ name: a.name, scanned: a.scanned, funnel: a.funnel, equity: a.equity })),
+    recentEvents: s.events.slice(0, 30),
+  }, null, 2));
+};
+setInterval(writeDiagnostics, 30_000);
+
+const snapshot = (history = true) => team.snapshot({
+  mode, feed: feed.status, solUsd: cfg.solUsd, feedStats: feed.stats, nodeVersion: process.version,
   market: { watched: market.tokens.size, ...market.stats },
-});
+}, { history });
 
 startServer({
   port: cfg.port,
